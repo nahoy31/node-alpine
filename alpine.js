@@ -5,8 +5,6 @@
  * Created by blarsen on 02.10.14.
  */
 
-"use strict";
-
 var Buffer = require('./buffer');
 
 var byline = require('byline');
@@ -49,8 +47,8 @@ function getStringStream() {
 
 function parseReadStream(stream, callback) {
     var thisAlpine = this;
-    var lineStream = byline.createStream(stream);
-    lineStream.pipe(through2.obj(function(chunk, enc, t2callback) {
+    var stream = byline.createStream(stream);
+    stream.pipe(through2.obj(function(chunk, enc, t2callback) {
         var data = thisAlpine.parseLine(chunk.toString());
         callback(data);
         t2callback();
@@ -67,8 +65,6 @@ function setLogFormat(logformat) {
 }
 
 function parseLine(line) {
-    line = line.replace(':', ' ');
-
     var result = {
         originalLine: line
     };
@@ -83,18 +79,21 @@ function parseLine(line) {
                 throw new Error("Field defined as quoted was not quoted");
             buf.skip();
             val = buf.getUpto('"');
-            buf.skipSpaces();
+            buf.skip();
         } else if (field.isDate) {
             if (!(buf.lookingAt() === '['))
                 throw new Error("Time field is not enclosed in brackets");
             buf.skip();
             val = buf.getUpto(']');
-            buf.skipSpaces();
+            buf.skip();
+        } else if (field.hasColon) {
+            val = buf.getUpto(':');
+            buf.skip();
         } else {
             val = buf.getUpto(' ');
         }
         result[field.name] = val;
-    });
+    })
 
     return result;
 }
@@ -105,58 +104,100 @@ function parseLogFormat(logformat) {
     while (buf.hasMore()) {
         buf.skipSpaces();
         var field = buf.getUpto(" ");
-        var isQuoted = field[0] === '"';
-        field = stripQuotes(field);
+        //var isQuoted = field[0] === '"';
+        //var field = stripQuotes(field);
 
-        // Check that this is a field definition (starting with %) and remove the prefix
-        if (!(field[0] === "%"))
-            throw new Error("Field does not start with %: "+field);
-        field = field.substring(1);
+        var test = hasColon(field);
+        if (false !== test) {
+            var i = 0;
 
-        // Remove modifiers
-        if (field.indexOf("{") > 0) {
-            field = field.replace(/^[0-9!]+/, "");
-        }
-        field = field.replace(/[<>]/g, "");
+            for (var field of test) {
+                var fieldObject = addField(field)
 
-        var fieldName = FIELDS[field];
+                if (0 === i) {
+                    fieldObject.hasColon = true;
+                } else {
+                    fieldObject.hasColon = false;
+                }
 
-        var fieldLetter = field;
+                fields.push(fieldObject);
 
-        // Handle parameterized fields
-        if (field.indexOf('{') >= 0) {
-            var matches = (/{(.*)}(.*)/).exec(field);
-            var value = matches[1];
-            fieldLetter = matches[2];
-            if (!PARAMFIELDS[fieldLetter])
-                throw new Error("The field "+fieldLetter+" should not be parameterized");
-            fieldName = PARAMFIELDS[fieldLetter] + ' ' + value;
+                i++;
+            }
+
+            continue;
         }
 
-        if (!FIELDS[fieldLetter])
-            throw new Error("Unknown log format field "+fieldLetter);
-        fields.push({
-            field: field,
-            name: fieldName,
-            isQuoted: isQuoted,
-            isDate: fieldLetter === 't'
-        });
+        var fieldObject = addField(field)
+        fieldObject.hasColon = false;
+        fields.push(fieldObject);
     }
     return fields;
 }
 
 function stripQuotes(text) {
     if ((_.startsWith(text, '"') && _.endsWith(text, '"'))
-    || (_.startsWith(text, '[')) && _.endsWith(text, ']'))
+        || (_.startsWith(text, '[')) && _.endsWith(text, ']'))
         return text.substr(1, text.length-2);
     return text;
+}
+
+function hasColon(str) {
+    var index = str.indexOf(':');
+
+    if (index > -1) {
+        return str.split(':');
+    }
+
+    return false;
+}
+
+function addField(field) {
+    var isQuoted = field[0] === '"';
+    field = stripQuotes(field);
+
+    // Check that this is a field definition (starting with %) and remove the prefix
+    if (!(field[0] === "%")) {
+        throw new Error("Field does not start with %: "+field);
+    }
+    field = field.substring(1);
+
+    // Remove modifiers
+    if (field.indexOf("{") > 0) {
+        field = field.replace(/^[0-9!]+//g, "");
+    }
+    field = field.replace(/[<>]/g, "");
+
+    var fieldName = FIELDS[field];
+
+    // Handle parameterized fields
+    if (field.indexOf('{') >= 0) {
+        var matches = (/{(.*)}(.*)/).exec(field);
+        var value = matches[1];
+        var field = matches[2];
+        if (!PARAMFIELDS[field]) {
+            throw new Error("The field "+field+" should not be parameterized");
+        }
+        fieldName = PARAMFIELDS[field] + ' ' + value;
+    }
+
+    if (!FIELDS[field]) {
+        throw new Error("Unknown log format field " + field);
+    }
+
+    return {
+        field:    field,
+        name:     fieldName,
+        isQuoted: isQuoted,
+        isDate:   field === 't'
+    };
 }
 
 Alpine.LOGFORMATS = {
     COMBINED: "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-agent}i\"",
     CLF: "%h %l %u %t \"%r\" %>s %b",
     CLF_VHOST: "%v %h %l %u %t \"%r\" %>s %b"
-};
+}
 
 var FIELDS = {
     'a': 'remoteIP',
@@ -190,11 +231,13 @@ var FIELDS = {
     'i': 'requestHeader',
     'n': 'note',
     'o': 'responseHeader',
+    'p': 'formatPort',
+    'P': 'pidFormat',
     '^ti': 'requestTrailerLine',
     '^to': 'responseTrailerLine'
-};
+}
 
-var PARAMFIELDS = {
+PARAMFIELDS = {
     "c": "Cookie",
     "e": "Environment",
     "i": "RequestHeader",
@@ -205,6 +248,6 @@ var PARAMFIELDS = {
     "t": "Time",
     '^ti': 'RequestTrailerLine',
     '^to': 'ResponseTrailerLine'
-};
+}
 
 module.exports = Alpine;

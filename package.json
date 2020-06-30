@@ -1,6 +1,6 @@
 {
   "name": "seologs-alpine",
-  "version": "0.2.2",
+  "version": "1.0.0",
   "description": "Alpine - the Apache Log Parser",
   "main": "alpine.js",
   "directories": {
