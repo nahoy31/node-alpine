@@ -67,6 +67,8 @@ function setLogFormat(logformat) {
 }
 
 function parseLine(line) {
+    line = line.replace(':', ' ');
+
     var result = {
         originalLine: line
     };
