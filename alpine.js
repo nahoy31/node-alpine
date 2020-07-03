@@ -15,16 +15,18 @@ var Alpine = function (logformat) {
 
     this.setLogFormat = setLogFormat;
     this.getLogFormat = getLogFormat;
+    this.setStopOnError = setStopOnError;
+    this.getStopOnError = getStopOnError;
     this.parseLine = parseLine;
     this.getObjectStream = getObjectStream;
     this.getStringStream = getStringStream;
     this.parseReadStream = parseReadStream;
 
-    if (logformat)
+    if (logformat) {
         this.setLogFormat(logformat);
-    else
+    } else {
         this.setLogFormat(Alpine.LOGFORMATS.COMBINED);
-
+    }
 };
 
 function getObjectStream() {
@@ -64,25 +66,42 @@ function setLogFormat(logformat) {
     this.formatfields = parseLogFormat(logformat);
 }
 
+function getStopOnError() {
+    return this.stopOnError;
+}
+
+function setStopOnError(stopOnError) {
+    this.stopOnError = stopOnError;
+}
+
 function parseLine(line) {
     var result = {
         originalLine: line
     };
 
-    var buf = new Buffer(line, 0);
+    var buf         = new Buffer(line, 0);
+    var stopOnError = this.stopOnError;
 
     this.formatfields.forEach(function(field) {
         buf.skipSpaces();
         var val;
         if (field.isQuoted) {
-            if (!(buf.lookingAt() === '"'))
-                throw new Error("Field defined as quoted was not quoted");
+            if (!(buf.lookingAt() === '"')) {
+                if (stopOnError) {
+                    throw new Error("Field defined as quoted was not quoted");
+                }
+            }
+
             buf.skip();
             val = buf.getUpto('"');
             buf.skip();
         } else if (field.isDate) {
-            if (!(buf.lookingAt() === '['))
-                throw new Error("Time field is not enclosed in brackets");
+            if (!(buf.lookingAt() === '[')) {
+                if (stopOnError) {
+                    throw new Error("Time field is not enclosed in brackets");
+                }
+            }
+
             buf.skip();
             val = buf.getUpto(']');
             buf.skip();
